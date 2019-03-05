@@ -88,7 +88,7 @@ public:
     bool sqlDelete();
     bool sqlFetch();
     bool sqlInsert(const QVariantMap &fields, QVariant *insertId = 0);
-    bool sqlLoad(QObject *model, int index);
+    bool sqlLoad(void *model, int index);
     int sqlUpdate(const QVariantMap &fields);
     QList<QVariantMap> sqlValues(const QStringList &fields);
     QList<QVariantList> sqlValuesList(const QStringList &fields);

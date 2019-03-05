@@ -22,6 +22,7 @@
 #include <QSharedDataPointer>
 #include <QVariant>
 #include <QStringList>
+#include <QMetaProperty>
 
 #include "QDjango_p.h"
 
@@ -49,7 +50,7 @@ public:
     QString name() const;
     int maxLength() const;
     QVariant toDatabase(const QVariant &value) const;
-
+    QMetaProperty metaProperty() const;
 private:
     QSharedDataPointer<QDjangoMetaFieldPrivate> d;
     friend class QDjangoMetaModel;
@@ -76,10 +77,9 @@ public:
     QStringList createTableSql() const;
     bool dropTable() const;
 
-    void load(QObject *model, const QVariantList &props, int &pos, const QStringList &relatedFields = QStringList()) const;
-    bool remove(QObject *model) const;
-    bool save(QObject *model) const;
-
+    void load(void *model, const QVariantList &props, int &pos, const QStringList &relatedFields = QStringList()) const;
+    bool remove(void *model) const;
+    bool save(void *model) const;
     QObject *foreignKey(const QObject *model, const char *name) const;
     void setForeignKey(QObject *model, const char *name, QObject *value) const;
 
@@ -89,6 +89,7 @@ public:
     QMap<QByteArray, QByteArray> foreignFields() const;
     QByteArray primaryKey() const;
     QString table() const;
+    bool isGadget() const;
 
 private:
     QSharedDataPointer<QDjangoMetaModelPrivate> d;

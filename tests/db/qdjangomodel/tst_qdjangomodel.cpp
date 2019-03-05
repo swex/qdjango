@@ -91,11 +91,26 @@ private:
     QString m_title;
 };
 
+
+struct KeyValueGadget{
+    Q_GADGET
+    Q_PROPERTY(QString key MEMBER key)
+    Q_PROPERTY(QString value MEMBER value)
+    Q_PROPERTY(int id MEMBER id)
+    Q_CLASSINFO("id", "primary_key=true auto_increment=true")
+
+public:
+    QString key;
+    QString value;
+    int id;
+};
+
 /** Test QDjangoModel class.
  */
 class tst_QDjangoModel : public QObject
 {
     Q_OBJECT
+    QDjangoMetaModel qgadgetDao;
 
 private slots:
     void initTestCase();
@@ -110,10 +125,34 @@ private slots:
     void primaryKey();
     void selectRelated();
     void selectRelated_null();
+    void qgadgetTest();
     void toString();
     void cleanup();
     void cleanupTestCase();
 };
+
+void tst_QDjangoModel::qgadgetTest(){
+    KeyValueGadget kv1{"key1", "value1"};
+    auto saved = qgadgetDao.save(&kv1);
+    QVERIFY(saved);
+    KeyValueGadget kvToLoad;
+    const QDjangoQuerySet<KeyValueGadget> kValues;
+    QCOMPARE(kValues.count(), 1);
+    kValues.all().at(0, &kvToLoad);
+    QVERIFY(kvToLoad.id == kv1.id && kv1.key == kvToLoad.key && kv1.value == kvToLoad.value);
+    KeyValueGadget kv2{"key2", "value2"};
+    saved = qgadgetDao.save(&kv2);
+    QVERIFY(saved);
+    QCOMPARE(kValues.count(), 2);
+    auto key1query = kValues.filter(QDjangoWhere("key", QDjangoWhere::Equals, "key2"));
+    QCOMPARE(key1query.count() , 1 );
+    key1query.at(0, &kvToLoad);
+    QVERIFY(kvToLoad.id == kv2.id && kv2.key == kvToLoad.key && kv2.value == kvToLoad.value);
+
+
+
+
+}
 
 /** Create database tables before running tests.
  */
@@ -123,6 +162,7 @@ void tst_QDjangoModel::initTestCase()
     QDjango::registerModel<Author>();
     QDjango::registerModel<Book>();
     QDjango::registerModel<BookWithNullAuthor>();
+    qgadgetDao = QDjango::registerModel<KeyValueGadget>();
 }
 
 /** Load fixtures.

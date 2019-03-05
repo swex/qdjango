@@ -332,7 +332,7 @@ bool QDjangoQuerySetPrivate::sqlInsert(const QVariantMap &fields, QVariant *inse
     return true;
 }
 
-bool QDjangoQuerySetPrivate::sqlLoad(QObject *model, int index)
+bool QDjangoQuerySetPrivate::sqlLoad(void *model, int index)
 {
     if (!sqlFetch())
         return false;

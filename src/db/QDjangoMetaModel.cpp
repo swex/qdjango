@@ -85,6 +85,7 @@ public:
     bool unique;
     bool blank;
     ForeignKeyConstraint deleteConstraint;
+    QMetaProperty meta;
 };
 
 QDjangoMetaFieldPrivate::QDjangoMetaFieldPrivate()
@@ -208,6 +209,11 @@ QVariant QDjangoMetaField::toDatabase(const QVariant &value) const
         return value;
 }
 
+QMetaProperty QDjangoMetaField::metaProperty() const
+{
+    return d->meta;
+}
+
 static QMap<QString, QString> parseOptions(const char *value)
 {
     QMap<QString, QString> options;
@@ -237,6 +243,9 @@ public:
     QByteArray primaryKey;
     QString table;
     QList<QByteArray> uniqueTogether;
+    const QMetaObject *metaObject;
+    bool isGadget;
+    QDjangoMetaField primaryKeyMeta;
 };
 
 /*!
@@ -247,7 +256,8 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
 {
     if (!meta)
         return;
-
+    d->metaObject = meta;
+    d->isGadget = !meta->inherits(&QObject::staticMetaObject);
     d->className = meta->className();
     d->table = QString::fromLatin1(meta->className()).toLower();
 
@@ -266,7 +276,8 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
     }
 
     const int count = meta->propertyCount();
-    for(int i = QObject::staticMetaObject.propertyCount(); i < count; ++i)
+    const int fromCount = d->isGadget?0:QObject::staticMetaObject.propertyCount();
+    for(int i = fromCount; i < count; ++i)
     {
         const QString typeName = QString::fromLatin1(meta->property(i).typeName());
         if (!qstrcmp(meta->property(i).name(), "pk"))
@@ -348,34 +359,44 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
 
         // local field
         QDjangoMetaField field;
+        field.d->meta = meta->property(i);
         field.d->name = meta->property(i).name();
         field.d->type = meta->property(i).type();
         field.d->db_column = dbColumnOption.isEmpty() ? QString::fromLatin1(field.d->name) : dbColumnOption;
         field.d->maxLength = maxLengthOption;
         field.d->null = nullOption;
-        if (primaryKeyOption) {
-            field.d->autoIncrement = autoIncrementOption;
-            d->primaryKey = field.d->name;
-        } else if (uniqueOption) {
+        if (uniqueOption) {
             field.d->unique = true;
         } else if (blankOption) {
             field.d->blank = true;
         } else if (dbIndexOption) {
             field.d->index = true;
+        } else if (primaryKeyOption) {
+//            field.d->
+            field.d->autoIncrement = autoIncrementOption;
+            d->primaryKey = field.d->name;
+            d->primaryKeyMeta = field;
         }
 
         d->localFields << field;
+
     }
 
     // automatic primary key
     if (d->primaryKey.isEmpty()) {
         QDjangoMetaField field;
+        auto indexOfProperty=meta->indexOfProperty("pk");
+        if (indexOfProperty >= 0){
+            field.d->meta = meta->property(indexOfProperty);
+        }
+
         field.d->name = "id";
         field.d->type = QVariant::Int;
         field.d->db_column = QLatin1String("id");
         field.d->autoIncrement = true;
         d->localFields.prepend(field);
         d->primaryKey = field.d->name;
+        d->primaryKeyMeta = field;
     }
 
 }
@@ -725,11 +746,28 @@ void QDjangoMetaModel::setForeignKey(QObject *model, const char *name, QObject *
 /*!
     Loads the given properties into a \a model instance.
 */
-void QDjangoMetaModel::load(QObject *model, const QVariantList &properties, int &pos, const QStringList &relatedFields) const
+void QDjangoMetaModel::load(void *object, const QVariantList &properties, int &pos, const QStringList &relatedFields) const
 {
     // process local fields
-    foreach (const QDjangoMetaField &field, d->localFields)
-        model->setProperty(field.d->name, properties.at(pos++));
+    QObject *model = nullptr;
+    foreach (const QDjangoMetaField &field, d->localFields){
+        bool saved=true;
+        if (isGadget()) {
+            saved = field.metaProperty().writeOnGadget(object, properties[pos++]);
+        } else {
+            model = static_cast<QObject*>(object);
+            auto name = field.name().toLatin1();
+            model->setProperty(name, properties[pos++]);
+        }
+
+        if (!saved){
+            return;
+        }
+    }
+    if (isGadget()){
+        // no foreign fields for qgadgets
+        return;
+    }
 
     // process foreign fields
     if (pos >= properties.size())
@@ -805,13 +843,18 @@ QString QDjangoMetaModel::table() const
     return d->table;
 }
 
+bool QDjangoMetaModel::isGadget() const
+{
+    return d->isGadget;
+}
+
 /*!
     Removes the given \a model instance from the database.
 */
-bool QDjangoMetaModel::remove(QObject *model) const
+bool QDjangoMetaModel::remove(void *object) const
 {
-    const QVariant pk = model->property(d->primaryKey);
-    QDjangoQuerySetPrivate qs(model->metaObject()->className());
+    const QVariant pk = isGadget() ? d->primaryKeyMeta.metaProperty().readOnGadget(object) : d->primaryKeyMeta.metaProperty().read(static_cast<QObject*>(object));
+    QDjangoQuerySetPrivate qs(d->metaObject->className());
     qs.addFilter(QDjangoWhere(QLatin1String("pk"), QDjangoWhere::Equals, pk));
     return qs.sqlDelete();
 }
@@ -821,11 +864,23 @@ bool QDjangoMetaModel::remove(QObject *model) const
 
     \return true if saving succeeded, false otherwise
 */
-bool QDjangoMetaModel::save(QObject *model) const
+bool QDjangoMetaModel::save(void *object) const
 {
     // find primary key
     const QDjangoMetaField primaryKey = localField("pk");
-    const QVariant pk = model->property(d->primaryKey);
+    QVariant pk;
+    QObject *model = nullptr;
+    if (isGadget()){
+        if (!primaryKey.isValid()){
+            return false;
+        }
+        pk = primaryKey.metaProperty().readOnGadget(object);
+    } else {
+        model = static_cast<QObject*>(object);
+        pk = primaryKey.metaProperty().read(model);
+    }
+
+
     if (!pk.isNull() && !(primaryKey.d->type == QVariant::Int && !pk.toInt()))
     {
         QSqlDatabase db = QDjango::database();
@@ -840,13 +895,13 @@ bool QDjangoMetaModel::save(QObject *model) const
             QVariantMap fields;
             foreach (const QDjangoMetaField &field, d->localFields) {
                 if (field.d->name != d->primaryKey) {
-                    const QVariant value = model->property(field.d->name);
+                    const QVariant value = isGadget() ? field.metaProperty().readOnGadget(object): field.metaProperty().read(model);
                     fields.insert(QString::fromLatin1(field.d->name), field.toDatabase(value));
                 }
             }
 
             // perform UPDATE
-            QDjangoQuerySetPrivate qs(model->metaObject()->className());
+            QDjangoQuerySetPrivate qs(d->metaObject->className());
             qs.addFilter(QDjangoWhere(QLatin1String("pk"), QDjangoWhere::Equals, pk));
             return qs.sqlUpdate(fields) != -1;
         }
@@ -856,23 +911,24 @@ bool QDjangoMetaModel::save(QObject *model) const
     QVariantMap fields;
     foreach (const QDjangoMetaField &field, d->localFields) {
         if (!field.d->autoIncrement) {
-            const QVariant value = model->property(field.d->name);
+            const QVariant value = isGadget() ? field.metaProperty().readOnGadget(object): model->property(field.d->name);
             fields.insert(field.name(), field.toDatabase(value));
         }
     }
 
     // perform INSERT
-    QDjangoQuerySetPrivate qs(model->metaObject()->className());
+    QDjangoQuerySetPrivate qs(d->metaObject->className());
     if (primaryKey.d->autoIncrement) {
         // fetch autoincrement pk
         QVariant insertId;
         if (!qs.sqlInsert(fields, &insertId))
             return false;
-        model->setProperty(d->primaryKey, insertId);
-    } else {
-        if (!qs.sqlInsert(fields))
-            return false;
+        auto ret = isGadget() ? primaryKey.metaProperty().writeOnGadget(object, insertId): primaryKey.metaProperty().write(model,insertId);
+        return ret;
     }
+    if (!qs.sqlInsert(fields))
+        return false;
+
     return true;
 }
 
