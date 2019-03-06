@@ -90,6 +90,7 @@ public:
     QByteArray primaryKey() const;
     QString table() const;
     bool isGadget() const;
+    QVariant convertBack(QVariant::Type originalType, const QVariant& value) const;
 
 private:
     QSharedDataPointer<QDjangoMetaModelPrivate> d;

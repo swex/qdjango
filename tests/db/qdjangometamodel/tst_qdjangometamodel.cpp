@@ -29,6 +29,7 @@
 template<class T>
 void init(const QStringList &sql)
 {
+    QDjango::setDebugEnabled(true);
     const QDjangoMetaModel metaModel = QDjango::registerModel<T>();
     QCOMPARE(metaModel.createTableSql(), sql);
     QCOMPARE(metaModel.createTable(), true);
@@ -172,6 +173,24 @@ void tst_QDjangoMetaModel::testDate()
     init<tst_Date>(sql);
     setAndGet<tst_Date>(QDate(2012, 1, 8));
     cleanup<tst_Date>();
+}
+void tst_QDjangoMetaModel::testUuid()
+{
+    QStringList sql;
+    QDjangoDatabase::DatabaseType databaseType = QDjangoDatabase::databaseType(QDjango::database());
+    if (databaseType == QDjangoDatabase::PostgreSQL)
+        sql << QLatin1String("CREATE TABLE \"tst_uuid\" (\"id\" serial PRIMARY KEY, \"value\" bytea NOT NULL)");
+    else if (databaseType == QDjangoDatabase::MySqlServer)
+        sql << QLatin1String("CREATE TABLE `tst_uuid` (`id` integer NOT NULL PRIMARY KEY AUTO_INCREMENT, `value` blob(16) NOT NULL)");
+    else if (databaseType == QDjangoDatabase::MSSqlServer)
+        sql << QLatin1String("CREATE TABLE \"tst_uuid\" (\"id\" int NOT NULL PRIMARY KEY IDENTITY(1,1), \"value\" varbinary(16) NOT NULL)");
+    else
+        sql << QLatin1String("CREATE TABLE \"tst_uuid\" (\"id\" integer NOT NULL PRIMARY KEY AUTOINCREMENT, \"value\" blob(16) NOT NULL)");
+
+    init<tst_Uuid>(sql);
+    setAndGet<tst_Uuid>(QUuid("7e270875-b9be-4ee5-9b51-0a6377f56603"));
+    setAndGet<tst_Uuid>(QUuid("{83d9023e-da9e-4ecf-8668-be7de163aff1}"));
+    cleanup<tst_Uuid>();
 }
 
 void tst_QDjangoMetaModel::testDateTime()

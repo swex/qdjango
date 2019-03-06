@@ -16,6 +16,7 @@
  */
 
 #include <QDate>
+#include <QUuid>
 
 #include "QDjangoModel.h"
 
@@ -31,6 +32,7 @@ private slots:
     void testByteArray();
     void testDate();
     void testDateTime();
+    void testUuid();
     void testDouble();
     void testInteger();
     void testLongLong();
@@ -40,6 +42,20 @@ private slots:
     void testConstraints();
     void testIsValid();
 };
+
+class tst_Uuid : public QDjangoModel
+{
+    Q_OBJECT
+    Q_PROPERTY(QUuid value READ value WRITE setValue)
+
+public:
+    QUuid value() const { return m_value; }
+    void setValue(QUuid value) { m_value = value; }
+
+private:
+    QUuid m_value;
+};
+
 
 class tst_Bool : public QDjangoModel
 {

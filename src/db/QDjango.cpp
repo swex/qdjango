@@ -24,6 +24,7 @@
 #include <QStringList>
 #include <QThread>
 #include <QStack>
+#include <QUuid>
 
 #include "QDjango.h"
 
@@ -116,10 +117,16 @@ void QDjangoQuery::addBindValue(const QVariant &val, QSql::ParamType paramType)
 {
     // this hack is required so that we do not store a mix of local
     // and UTC times
-    if (val.type() == QVariant::DateTime)
+    switch (val.type()) {
+    case QVariant::DateTime:
         QSqlQuery::addBindValue(val.toDateTime().toLocalTime(), paramType);
-    else
+        break;
+    case QVariant::Uuid:
+        QSqlQuery::addBindValue(val.toUuid().toRfc4122(), paramType);
+        break;
+    default:
         QSqlQuery::addBindValue(val, paramType);
+    }
 }
 
 bool QDjangoQuery::exec()

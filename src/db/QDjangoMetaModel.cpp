@@ -19,6 +19,8 @@
 #include <QMetaProperty>
 #include <QSqlDriver>
 #include <QStringList>
+#include <QObject>
+#include <QUuid>
 
 #include "QDjango.h"
 #include "QDjangoMetaModel.h"
@@ -480,18 +482,21 @@ QStringList QDjangoMetaModel::createTableSql() const
                 fieldSql += QLatin1String(" bool");
             break;
         case QVariant::ByteArray:
-            if (databaseType == QDjangoDatabase::PostgreSQL) {
-                fieldSql += QLatin1String(" bytea");
-            } else if (databaseType == QDjangoDatabase::MSSqlServer) {
-                fieldSql += QLatin1String(" varbinary");
-                if (field.d->maxLength > 0)
-                    fieldSql += QLatin1Char('(') + QString::number(field.d->maxLength) + QLatin1Char(')');
-                else
-                    fieldSql += QLatin1String("(max)");
-            } else {
-                fieldSql += QLatin1String(" blob");
-                if (field.d->maxLength > 0)
-                    fieldSql += QLatin1Char('(') + QString::number(field.d->maxLength) + QLatin1Char(')');
+        case QVariant::Uuid:{
+                auto maxLength = field.d->type == QVariant::Uuid ? 16 : field.d->maxLength;
+                if (databaseType == QDjangoDatabase::PostgreSQL) {
+                    fieldSql += QLatin1String(" bytea");
+                } else if (databaseType == QDjangoDatabase::MSSqlServer) {
+                    fieldSql += QLatin1String(" varbinary");
+                    if (maxLength > 0)
+                        fieldSql += QLatin1Char('(') + QString::number(maxLength) + QLatin1Char(')');
+                    else
+                        fieldSql += QLatin1String("(max)");
+                } else {
+                    fieldSql += QLatin1String(" blob");
+                    if (maxLength > 0)
+                        fieldSql += QLatin1Char('(') + QString::number(maxLength) + QLatin1Char(')');
+                }
             }
             break;
         case QVariant::Date:
@@ -749,15 +754,15 @@ void QDjangoMetaModel::setForeignKey(QObject *model, const char *name, QObject *
 void QDjangoMetaModel::load(void *object, const QVariantList &properties, int &pos, const QStringList &relatedFields) const
 {
     // process local fields
-    QObject *model = nullptr;
+    QObject *model = isGadget() ? nullptr : static_cast<QObject*>(object);
+;
     foreach (const QDjangoMetaField &field, d->localFields){
         bool saved=true;
         if (isGadget()) {
-            saved = field.metaProperty().writeOnGadget(object, properties[pos++]);
+            saved = field.metaProperty().writeOnGadget(object, convertBack(field.d->type, properties[pos++]));
         } else {
-            model = static_cast<QObject*>(object);
             auto name = field.name().toLatin1();
-            model->setProperty(name, properties[pos++]);
+            model->setProperty(name, convertBack(field.d->type, properties[pos++]));
         }
 
         if (!saved){
@@ -846,6 +851,20 @@ QString QDjangoMetaModel::table() const
 bool QDjangoMetaModel::isGadget() const
 {
     return d->isGadget;
+}
+
+QVariant QDjangoMetaModel::convertBack(QVariant::Type originalType, const QVariant &value) const
+{
+//    QSqlDatabase db = QDjango::database();
+//    QSqlDriver *driver = db.driver();
+//    QDjangoDatabase::DatabaseType databaseType = QDjangoDatabase::databaseType(db);
+    switch (originalType) {
+        case QVariant::Uuid:
+        return QUuid::fromRfc4122(value.toByteArray());
+        break;
+    default:
+        return value;
+    }
 }
 
 /*!

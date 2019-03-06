@@ -105,6 +105,7 @@ public:
     int id;
 };
 
+
 /** Test QDjangoModel class.
  */
 class tst_QDjangoModel : public QObject
