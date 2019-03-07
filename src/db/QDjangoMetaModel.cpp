@@ -21,6 +21,7 @@
 #include <QStringList>
 #include <QObject>
 #include <QUuid>
+#include <QColor>
 
 #include "QDjango.h"
 #include "QDjangoMetaModel.h"
@@ -295,6 +296,7 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
         bool nullOption = false;
         bool uniqueOption = false;
         bool blankOption = false;
+        QString foreignFieldTable;
         ForeignKeyConstraint deleteConstraint = NoAction;
         const int infoIndex = meta->indexOfClassInfo(meta->property(i).name());
         if (infoIndex >= 0)
@@ -323,6 +325,8 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
                     uniqueOption = stringToBool(value);
                 else if (key == QLatin1String("blank"))
                     blankOption = stringToBool(value);
+                else if (key == QLatin1String("foreign_field"))
+                    foreignFieldTable = value;
                 else if (option.key() == "on_delete") {
                     if (value.toLower() == "cascade")
                         deleteConstraint = Cascade;
@@ -339,7 +343,7 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
             continue;
 
         // foreign field
-        if (typeName.endsWith(QLatin1Char('*'))) {
+        if (typeName.endsWith(QLatin1Char('*')) || !foreignFieldTable.isEmpty()) {
             const QByteArray fkName = meta->property(i).name();
             const QByteArray fkModel = typeName.left(typeName.size() - 1).toLatin1();
             d->foreignFields.insert(fkName, fkModel);
@@ -349,7 +353,13 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
             // FIXME : the key is not necessarily an INTEGER field, we should
             // probably perform a lookup on the foreign model, but are we sure
             // it is already registered?
-            field.d->type = QVariant::Int;
+            // TODO: order matters (
+            auto foreignMetaModel = QDjango::metaModel(fkModel);
+            if (foreignMetaModel.isValid()){
+                field.d->type = foreignMetaModel.d->primaryKeyMeta.d->type;
+            }else{
+                field.d->type = QVariant::Int;
+            }
             field.d->foreignModel = fkModel;
             field.d->db_column = dbColumnOption.isEmpty() ? QString::fromLatin1(field.d->name) : dbColumnOption;
             field.d->index = true;
@@ -363,7 +373,11 @@ QDjangoMetaModel::QDjangoMetaModel(const QMetaObject *meta)
         QDjangoMetaField field;
         field.d->meta = meta->property(i);
         field.d->name = meta->property(i).name();
-        field.d->type = meta->property(i).type();
+        if (meta->property(i).isEnumType()||meta->property(i).isFlagType()) {
+            field.d->type = QVariant::Int;
+        } else {
+            field.d->type = meta->property(i).type();
+        }
         field.d->db_column = dbColumnOption.isEmpty() ? QString::fromLatin1(field.d->name) : dbColumnOption;
         field.d->maxLength = maxLengthOption;
         field.d->null = nullOption;
@@ -518,6 +532,7 @@ QStringList QDjangoMetaModel::createTableSql() const
                 fieldSql += QLatin1String(" integer");
             break;
         case QVariant::LongLong:
+        case QVariant::Color:
             fieldSql += QLatin1String(" bigint");
             break;
         case QVariant::String:
@@ -757,7 +772,7 @@ void QDjangoMetaModel::load(void *object, const QVariantList &properties, int &p
     QObject *model = isGadget() ? nullptr : static_cast<QObject*>(object);
 ;
     foreach (const QDjangoMetaField &field, d->localFields){
-        bool saved=true;
+        bool saved = true;
         if (isGadget()) {
             saved = field.metaProperty().writeOnGadget(object, convertBack(field.d->type, properties[pos++]));
         } else {
@@ -766,6 +781,7 @@ void QDjangoMetaModel::load(void *object, const QVariantList &properties, int &p
         }
 
         if (!saved){
+            qWarning() << QStringLiteral("unable to save property %1").arg(QString::fromLatin1(field.d->name));
             return;
         }
     }
@@ -859,9 +875,10 @@ QVariant QDjangoMetaModel::convertBack(QVariant::Type originalType, const QVaria
 //    QSqlDriver *driver = db.driver();
 //    QDjangoDatabase::DatabaseType databaseType = QDjangoDatabase::databaseType(db);
     switch (originalType) {
-        case QVariant::Uuid:
+    case QVariant::Uuid:
         return QUuid::fromRfc4122(value.toByteArray());
-        break;
+    case QVariant::Color:
+        return QColor(static_cast<QRgb>(value.toLongLong()));
     default:
         return value;
     }
