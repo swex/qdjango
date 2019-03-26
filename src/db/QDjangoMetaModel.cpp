@@ -931,7 +931,7 @@ bool QDjangoMetaModel::save(void *object) const
             QVariantMap fields;
             foreach (const QDjangoMetaField &field, d->localFields) {
                 if (field.d->name != d->primaryKey) {
-                    const QVariant value = isGadget() ? field.metaProperty().readOnGadget(object): field.metaProperty().read(model);
+                    const QVariant value = isGadget() ? field.metaProperty().readOnGadget(object): model->property(field.d->name);
                     fields.insert(QString::fromLatin1(field.d->name), field.toDatabase(value));
                 }
             }
